@@ -1,0 +1,2 @@
+- Proposer de chosir la plage d'Analyse et mettre par defaut sur 2017
+- Créer un indice synthetique

@@ -1,0 +1,14 @@
+streamlit==1.38.0 
+pandas==2.2.2 
+seaborn==0.13.2 
+matplotlib==3.9.2 
+statsmodels==0.14.2 
+prophet==1.1.5 
+scikit-learn==1.5.1 
+tqdm==4.66.5 
+openpyxl==3.1.5 
+selenium==4.25.0 
+numpy==1.26.4
+plotly==5.22.0           # Graphiques interactifs
+streamlit-extras         # Pour widgets améliorés
+ruptures                 # Pour la gestion des ruptures de séries temporelles

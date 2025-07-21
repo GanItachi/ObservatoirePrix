@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  observatoire:
+    container_name: observatoire_streamlit
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app # Montage en volume pour édition live du code
+      - ./telechargements_temp:/app/telechargements_temp
+      - ./excels_anstat_new:/app/excels_anstat_new
+    command: >
+      streamlit run app.py --server.port=8501 --server.address=0.0.0.0
+    environment:
+      - PYTHONUNBUFFERED=1
+      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+    restart: unless-stopped
