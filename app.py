@@ -151,7 +151,7 @@ with st.sidebar:
             "Choix",
             "Prévisions",
             "Classification",
-            "alertes"
+            "alertes",
         ],
         key="page_visual",
     )

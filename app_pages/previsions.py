@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd, numpy as np, matplotlib.pyplot as plt, streamlit as st
 from datetime import date
 from dateutil.relativedelta import relativedelta
-
+from prophet import Prophet
 # ────────────────────────────────────────────────────────────────
 
 
@@ -27,7 +27,7 @@ def _forecast_with_saved(model_obj, model_name: str,
 
     # --- prédiction suivant le type de modèle déjà sauvegardé ------------
     if model_name == "Prophet":
-        from prophet import Prophet
+        
         dfp = full_series.rename("y").reset_index().rename(columns={full_series.index.name or "index": "ds"})
         model_obj.fit(dfp)  # ré‑entraînement rapide
         fc = model_obj.predict(pd.DataFrame({"ds": future_idx})).set_index("ds")

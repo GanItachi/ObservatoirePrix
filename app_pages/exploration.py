@@ -8,12 +8,14 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy.stats import kruskal
 import calendar
+from statsmodels.tsa.stattools import adfuller  
 from core.nomenclature import ncoa_fonction, repartition_ncoa
 
 import scipy.stats as stats
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
+
 
 import scipy.stats as stats
 import numpy as np
@@ -52,9 +54,12 @@ def render_exploration() -> None:
     serie_fct   = df[fct_label].dropna()
     serie_poste = df[poste].dropna()
 
+    # ==== Bloc : Aperçu rapide ===================================
+    with st.expander("ℹ️ Statistiques rapides"):
+        st.write(_quick_stats(serie_poste).to_frame("Valeur"))
     # 2️⃣ Évolution temporelle
     # ------------------------------------------------------------------
-    st.subheader("📈 Évolution temporelle")
+    st.subheader("📈 *Évolution temporelle*")
     st.markdown(
         "ℹ️ **Comment lire ?** L’axe horizontal montre le temps (mois) ; l’axe vertical la "
         "valeur de l’indice. Une courbe qui monte = des prix qui augmentent. "
@@ -72,17 +77,6 @@ def render_exploration() -> None:
         f"(≈ {slope_poste:+.2f}/mois)."
     )
     st.info(msg)
-    
-    # ...existing code...
-    # 2️⃣ Anomalies détectées
-    # ------------------------------------------------------------------
-    anomalies = {}
-    zscores = np.abs((df[poste] - df[poste].mean()) / df[poste].std())
-    anomalies[poste] = df[poste][zscores > 3]
-    for poste, vals in anomalies.items():
-        if not vals.empty:
-            st.warning(f"Anomalies détectées pour {poste}: {vals.index.strftime('%Y-%m-%d').tolist()}")
-    # ...existing code...
     
     
     # 3️⃣ Volatilité glissante
@@ -106,34 +100,17 @@ def render_exploration() -> None:
         f"({vol_peak_value:.1f} points)."
     )
 
-    # 4️⃣ Heatmap YoY (variation annuelle des postes de la fonction)
-    # ------------------------------------------------------------------
-    st.subheader("🔥 Heatmap variation annuelle (%) des postes de la fonction")
-    st.markdown(
-        "ℹ️ **Comment lire ?** Chaque case représente la variation sur 12 mois "
-        "pour un poste donné : rouge = hausse ; bleu = baisse. Les couleurs "
-        "vives localisent les périodes de choc prix."
-    )
-    df_yoy = df[postes_fct].pct_change(12) * 100
-    fig, ax = plt.subplots(figsize=(12, len(postes_fct) * 0.35))
-    sns.heatmap(df_yoy.T, cmap="coolwarm", center=0, cbar_kws={"label": "% YoY"}, ax=ax)
-    st.pyplot(fig)
-    last_yoy = df_yoy.iloc[-1].dropna()
-    if not last_yoy.empty:
-        top_inc  = last_yoy.idxmax(); top_inc_val  = last_yoy.max()
-        top_dec  = last_yoy.idxmin(); top_dec_val  = last_yoy.min()
-        st.success(
-            f"Dernier mois : hausse la plus forte **{top_inc}** (+{top_inc_val:.1f} %), \n"
-            f"baisse la plus forte **{top_dec}** ({top_dec_val:.1f} %)."
-        )
 
-    # 6️⃣ Boxplot mensuel (saisonnalité)
+    # 6️ Boxplot mensuel (saisonnalité)
     # ------------------------------------------------------------------
-
     # ────────────────────────────────────────────────────────────────
     # 1) Option : retirer (ou non) la tendance
     # ────────────────────────────────────────────────────────────────
-    st.markdown("#### *ANALYSE SAISONNALITE*")
+    st.markdown("# *ANALYSE SAISONNALITE*")
+    st.markdown("ℹ️ **Comment lire ?** Le boxplot montre la distribution des valeurs par mois. "
+                "Chaque boîte représente les valeurs du poste pour un mois donné, "
+                "avec la médiane, les quartiles et les valeurs extrêmes. "
+                "On peut ainsi visualiser les variations mensuelles et détecter des effets saisonniers.")
     detrend_opt = st.checkbox("Retirer la tendance avant l’analyse", value=True)
 
     if detrend_opt:
@@ -151,8 +128,8 @@ def render_exploration() -> None:
 
 
     fig, ax = plt.subplots(figsize=(10, 4))
-    sns.boxplot(data=df_box, x="mois", y="val", ax=ax, palette="Blues",order=calendar.month_name[1:])
-    ax.set_xlabel("Mois"); ax.set_ylabel("Valeur (détrendue)" if detrend_opt else "Valeur brute")
+    sns.boxplot(data=df_box, x="mois", y="val", ax=ax, color='cyan', order=calendar.month_name[1:])
+    ax.set_xlabel("Mois"); ax.set_ylabel("Valeur (sans trend)" if detrend_opt else "Valeur brute")
     st.pyplot(fig)
 
     # ────────────────────────────────────────────────────────────────
@@ -175,28 +152,29 @@ def render_exploration() -> None:
         delta = eff_mois - base_mean                    # écart à la moyenne
         pct   = 100 * delta / base_mean                 # en %
 
+    
         interp_df = pd.DataFrame({
-            "Mois": eff_mois.index,
-            "Effet moyen": eff_mois.round(2),
-            "Δ vs moyenne": delta.round(2),
-            "Δ (%)": pct.round(1),
+            "Effet moyen": eff_mois.round(2)
         })
 
         st.markdown("#### Effet moyen par mois")
-        st.dataframe(interp_df, use_container_width=True)
+        st.markdown("ℹ️ **Comment lire ?** Chaque mois a un effet moyen sur le poste. "
+                    "Un effet positif signifie que ce mois est en moyenne plus élevé que la moyenne annuelle, "
+                    "négatif = plus bas.")
+        st.dataframe(interp_df.T, use_container_width=True)
 
         # Mini‑graphe barre des deltas
         fig2, ax2 = plt.subplots(figsize=(8, 3))
-        ax2.bar(interp_df["Mois"], interp_df["Δ (%)"], color=np.where(interp_df["Δ (%)"]>0, "#d62728", "#097bee"))
+        #reduire taille des étiquettes de l'axe x
+        ax2.tick_params(axis='x', labelrotation=45, labelsize=8)
+        ax2.bar(interp_df.index, interp_df["Effet moyen"], color=np.where(interp_df["Effet moyen"]>0, "#d62728", "#097bee"))
         ax2.axhline(0, color="grey", lw=1)
-        ax2.set_xlabel("Mois"); ax2.set_ylabel("Écart moyen (%)")
+        ax2.set_xlabel("Mois"); ax2.set_ylabel("Effet moyen (%)")
         ax2.set_title("Effet saisonnier moyen par mois")
         st.pyplot(fig2)
 
         st.caption(
-            "🔍 **Lecture** : un Δ(%) positif signifie que, toutes choses égales "
-            "par ailleurs, ce mois est en moyenne plus élevé que la moyenne annuelle ; "
-            "négatif = mois plus bas."
+            "🔍 **Lecture** : Le pourcentage indique l'écart par rapport à la moyenne annuelle. C'est à dire l'augmentation moyenne des prix en fonction du mois."
         )
 
     # ------------------------------------------------------------------
@@ -204,6 +182,9 @@ def render_exploration() -> None:
     # ------------------------------------------------------------------
     try :
         with st.expander("👁️ Voir la série détrendue vs originale"):
+            st.markdown("**Série détrendue** : la tendance de fond a été retirée pour mieux visualiser les variations mensuelles.")
+            st.markdown("**Série originale** : la série brute, avec sa tendance de fond.")
+            st.markdown("**Comment lire ?** La série détrendue permet de mieux visualiser les variations mensuelles sans l’influence de la tendance de fond.")
             st.line_chart(pd.concat({"Originale": serie_poste, "Détrendue": trend}, axis=1))
     except:
         pass
@@ -218,9 +199,73 @@ def render_exploration() -> None:
         "text/csv"
     )
 
+    # ---------------------------------------------------------------------------
+    # 📌  SECTION – Analyse de stationnarité
+    # ---------------------------------------------------------------------------
+
+    st.markdown("# 🔬 Analyse de la stationnarité")
+
+    # 1️⃣  Paramètres interactifs ----------------------------------------------
+    with st.expander("⚙️ Paramètres d’analyse", expanded=True):
+        colA, colB, colC = st.columns(3)
+        ordre_diff = colA.number_input("Ordre de différenciation (d)", 0, 3, 0)
+        log_trf    = colB.checkbox("Appliquer un log(x)", value=False,
+                                help="Utile pour stabiliser la variance.")
+        test_selec = colC.radio("Test statistique",
+                                ["Dickey‑Fuller augmentée (ADF)"],
+                                index=0)
+
+    # 2️⃣  Pré‑traitement choisi ------------------------------------------------
+    serie_work = serie_poste.copy()
+
+    if log_trf:
+        serie_work = np.log(serie_work.replace(0, np.nan)).dropna()
+
+    for _ in range(int(ordre_diff)):
+        serie_work = serie_work.diff().dropna()
+
+    # 3️⃣  Exécution du test sélectionné ---------------------------------------
+    if test_selec.startswith("Dickey"):
+        stat, pval, lags, nobs, crit, _ = adfuller(serie_work)
+        interpr = "✅ Stationnaire" if pval < 0.05 else "⚠️ Non‑stationnaire"
+        st.info(f"**ADF = {stat:.3f}, p‑value = {pval:.4f} → {interpr}**")
+        st.caption("H₀ : la série possède une racine unitaire (non‑stationnaire).")
+
+    # Affichage des valeurs critiques
+    crit_str = ", ".join([f"{k}: {v:.3f}" for k, v in crit.items()])
+    st.write("*Valeurs critiques* :", crit_str)
+
+    # 4️⃣  Visualisation avant / après -----------------------------------------
+    fig, ax = plt.subplots(figsize=(12, 4))
+    ax.plot(serie_poste, label="Série originale", alpha=0.4)
+    ax.plot(serie_work,  label=f"Série transformée (log={log_trf}, d={ordre_diff})")
+    ax.set_title("Visualisation : origine vs. transformée")
+    ax.legend(); ax.grid(alpha=.2)
+    st.pyplot(fig)
+
+    # 5️⃣  Aide à l’interprétation ---------------------------------------------
+    with st.expander("💡 Interpréter les résultats"):
+        st.markdown(
+            """
+            - **ADF** : p‑value < 0,05 ⇒ on rejette H₀ ⇒ la série n’a **pas** de racine unitaire ⇒ stationnaire.  
+            - **KPSS** : p‑value > 0,05 ⇒ on **ne** rejette pas H₀ ⇒ stationnaire.  
+            - **Différenciation (d)** : chaque ordre enlève une tendance.  
+            - **Log** : réduit l’amplitude des fortes variations, utile si variance croissante.
+            """
+        )
+
+        
+        
+    st.markdown("# 📊 Analyse globale des indices")
     # 8️⃣ Heatmap « Par fonction » (robuste)
     # ------------------------------------------------------------------
     st.subheader("🖼️ Heatmap des indices par fonction (vue globale)")
+    # Explication du heatmap
+    st.markdown(
+        "ℹ️ **Comment lire ?** Chaque ligne représente une fonction NCOA, "
+        "chaque colonne un mois. Les couleurs indiquent l’indice de prix "
+        "(plus c’est foncé, plus les prix sont élevés)."
+    )
     # Filtre des fonctions effectivement présentes (au moins une valeur non‑nulle)
     available_fcts = [
         col for col in fonction_cols
@@ -239,5 +284,28 @@ def render_exploration() -> None:
         st.pyplot(fig)
         if missing_fcts:
             st.caption(f"Fonctions non affichées : {', '.join(missing_fcts)}")
+        
+            
+            
+    #4️⃣ Heatmap YoY (variation annuelle des postes de la fonction)
+    # ------------------------------------------------------------------
+    st.subheader("🔥 Heatmap variation annuelle (%) des postes de la fonction")
+    st.markdown(
+        "ℹ️ **Comment lire ?** Chaque case représente la variation sur 12 mois "
+        "pour un poste donné : rouge = hausse ; bleu = baisse. Les couleurs "
+        "vives localisent les périodes de choc prix."
+    )
+    df_yoy = df[postes_fct].pct_change(12) * 100
+    fig, ax = plt.subplots(figsize=(12, len(postes_fct) * 0.35))
+    sns.heatmap(df_yoy.T, cmap="coolwarm", center=0, cbar_kws={"label": "% YoY"}, ax=ax)
+    st.pyplot(fig)
+    last_yoy = df_yoy.iloc[-1].dropna()
+    if not last_yoy.empty:
+        top_inc  = last_yoy.idxmax(); top_inc_val  = last_yoy.max()
+        top_dec  = last_yoy.idxmin(); top_dec_val  = last_yoy.min()
+        st.success(
+            f"Dernier mois : hausse la plus forte **{top_inc}** (+{top_inc_val:.1f} %), \n"
+            f"baisse la plus forte **{top_dec}** ({top_dec_val:.1f} %)."
+        )
 
 # ────────────────────────────────────────────────────────────────────────────

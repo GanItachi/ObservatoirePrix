@@ -1,149 +1,179 @@
-# app_pages/classification.py – Analyse avancée interactive des groupes de postes
-# --------------------------------------------------------------------------------
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
-from scipy.cluster.hierarchy import linkage, fcluster
-from sklearn.decomposition import PCA
+import ast
+import matplotlib.pyplot as plt
+from io import BytesIO
+from statsmodels.tsa.seasonal import STL
+
+# Palette couleurs (peut être raffinée)
+CLUSTER_COLORS = ["#22a879", "#e98d27", "#e5544d", "#4472c4", "#9b59b6"]
+
 
 def render_classif():
-    # --- Données de session ---
+    st.title("🌈 Profils types des postes de consommation")
+    st.markdown(
+        "Obtenez une vue d'ensemble sur la dynamique des groupes de consommation : "
+        "hausse structurelle, saisonnalité, volatilité… Sélectionnez un groupe pour explorer un poste en détail."
+    )
+    mapping = pd.read_csv("mapping_clusters.csv", index_col=0)
+    desc_clusters = pd.read_csv("desc_clusters.csv")
     df = st.session_state.df
-    poste_cols = st.session_state.poste_cols
+
+    for i, row in desc_clusters.iterrows():
+        # Extraction robuste de la liste des postes
+        try:
+            postes = ast.literal_eval(row['postes'])
+            if not isinstance(postes, list):
+                postes = [str(postes)]
+        except Exception:
+            postes = [p.strip() for p in str(row['postes']).split(',') if p.strip()]
+
+        present_cols = [col for col in postes if col in df.columns]
+        missing_cols = [col for col in postes if col not in df.columns]
+
+        cluster_color = CLUSTER_COLORS[i % len(CLUSTER_COLORS)]
+        st.markdown(
+            f"<h3 style='color:{cluster_color};font-weight:bold'>🟢 {row['nom']} "
+            f"<span style='font-size:0.8em'>({len(postes)} postes)</span></h3>",
+            unsafe_allow_html=True
+        )
+        st.markdown(
+            f"<div style='font-size:1.08em'><b>Description :</b> "
+            f"Tendance : <b>{row['trend']:.2f}</b>, "
+            f"Saisonnalité : <b>{row['season']:.2f}</b>, "
+            f"Volatilité : <b>{row['volatility']:.2f}%</b>. "
+            f"Exemples : {', '.join(postes[:6])}{'…' if len(postes) > 6 else ''}</div>",
+            unsafe_allow_html=True
+        )
+
+        with st.container():
+            # Recommandation synthétique
+            if "saisonnier" in row['nom'].lower():
+                st.info("🔎 **Recommandation :** Surveillez ces postes surtout lors des pics saisonniers.")
+            elif "volatil" in row['nom'].lower():
+                st.info("🚨 **Recommandation :** Renforcez la veille sur ces postes à variations brusques.")
+            else:
+                st.success("ℹ️ **Recommandation :** Suivi standard ; ces postes sont stables ou peu sensibles.")
+
+            if present_cols:
+                sub = df[present_cols]
+                means = sub.mean()
+                volas = sub.pct_change().std() * 100
+                saison_metric = sub.groupby(sub.index.month).mean().std()
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Le plus cher (moy)", means.idxmax(), f"{means.max():.2f}")
+                with col2:
+                    st.metric("Le plus volatil (%)", volas.idxmax(), f"{volas.max():.2f}")
+                with col3:
+                    st.metric("Saisonnalité max.", saison_metric.idxmax(), f"{saison_metric.max():.2f}")
+
+                # Sélecteur interactif
+                st.subheader("🔍 Explorer un poste du cluster")
+                poste_sel = st.selectbox("Choisissez un poste à explorer :", present_cols, key=f"poste_{i}")
+                serie = df[poste_sel]
+                csv_bytes = serie.to_csv().encode('utf-8')
+                st.download_button(
+                    label="📥 Télécharger les données du poste",
+                    data=csv_bytes,
+                    file_name=f"{poste_sel}_series.csv",
+                    mime="text/csv"
+                )
+
+                # 1️⃣ Série sélectionnée
+                fig, ax = plt.subplots(figsize=(6, 3))
+                ax.plot(serie.index, serie.values, color=cluster_color, linewidth=2)
+                ax.set_title(f"Évolution de {poste_sel}")
+                ax.set_xlabel('Date'); ax.set_ylabel('Indice')
+                plt.xticks(rotation=45)
+                st.pyplot(fig)
+
+                buf = BytesIO(); fig.savefig(buf, format='png', bbox_inches='tight')
+                st.download_button(
+                    label="📥 Télécharger le graphique PNG",
+                    data=buf.getvalue(),
+                    file_name=f"{poste_sel}_evolution.png",
+                    mime="image/png"
+                )
+
+                # Calcul de l'indice moyen du cluster
+                cluster_mean = sub.mean(axis=1)
+                st.subheader("📈 Tendance moyenne du cluster")
+                # Décomposer pour extraire la tendance
+                stl = STL(cluster_mean, period=12, robust=True).fit()
+                trend = stl.trend
+                fig_trend, ax_trend = plt.subplots(figsize=(6, 3))
+                ax_trend.plot(trend.index, trend.values, color=cluster_color, linewidth=2)
+                ax_trend.set_title('Composante tendance (moyenne cluster)')
+                ax_trend.set_xlabel('Date'); ax_trend.set_ylabel('Tendance')
+                plt.xticks(rotation=45)
+                st.pyplot(fig_trend)
+                buf_tr = BytesIO(); fig_trend.savefig(buf_tr, format='png', bbox_inches='tight')
+                st.download_button('📥 Télécharger tendance PNG', buf_tr.getvalue(),
+                                   f"{row['nom']}_tendance.png", 'image/png')
+
+                # 2️⃣ Signature saisonnière détrendée
+                st.markdown("**Signature saisonnière moyenne du cluster (détrend)**")
+                seasonal = stl.seasonal
+                saison_moy = seasonal.groupby(seasonal.index.month).mean()
+                fig2, ax2 = plt.subplots(figsize=(6, 3))
+                ax2.bar(saison_moy.index, saison_moy.values, color=cluster_color)
+                ax2.set_title('Signature saisonnière détrendée')
+                ax2.set_xlabel('Mois'); ax2.set_ylabel('Saisonnalité')
+                plt.xticks(rotation=45)
+                st.pyplot(fig2)
+                buf2 = BytesIO(); fig2.savefig(buf2, format='png', bbox_inches='tight')
+                st.download_button('📥 Télécharger saisonnière PNG', buf2.getvalue(),
+                                   f"{row['nom']}_saisonniere_detrend.png", 'image/png')
+
+                # 3️⃣ Variations mensuelles moyennes
+                st.markdown("**Variations mensuelles moyennes (%) du cluster**")
+                vols_mean = cluster_mean.pct_change() * 100
+                fig3, ax3 = plt.subplots(figsize=(6, 3))
+                ax3.plot(vols_mean.index, vols_mean.values, color=cluster_color)
+                ax3.set_title('Variations mensuelles moyennes (%)')
+                ax3.set_xlabel('Date'); ax3.set_ylabel('% Variation')
+                plt.xticks(rotation=45)
+                st.pyplot(fig3)
+                buf3 = BytesIO(); fig3.savefig(buf3, format='png', bbox_inches='tight')
+                st.download_button('📥 Télécharger variations PNG', buf3.getvalue(),
+                                   f"{row['nom']}_variations.png", 'image/png')
+
+            else:
+                st.warning("Aucune colonne valide dans ce cluster pour la base de données actuelle.")
+                
+            if missing_cols:
+                st.markdown(
+                    f"<span style='color:#e67e22;font-size:0.95em'>Colonnes absentes : {'; '.join(missing_cols)}</span>",
+                    unsafe_allow_html=True
+                )
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+    with st.expander("ℹ️ Glossaire"):
+        st.markdown("""
+        - **Tendance :** Composante de fond de la série, extraite par décomposition STL.
+        - **Saisonnalité :** Composante cyclique après retrait de la tendance.
+        - **Volatilité :** Amplitude des variations mensuelles.
+        - **CV (coefficient de variation) :** Rapport de la dispersion à la moyenne.
+        """)
+
+    st.caption(
+        "Typologie calculée automatiquement ; mise à jour régulière. Pour détails méthodologiques, voir la section Méthodologie."
+    )
     
+        # Lien vers la documentation détaillée
+    with st.expander("📖 En savoir plus"):
+        st.markdown(
+            "Ce cluster regroupe les postes dont le profil est détaillé dans le mémoire (section 4.X). "
+            "Pour une description complète et les recommandations associées, consultez le document de référence."
+        )
+        st.markdown("[Télécharger le mémoire (PDF)](docs/memoire.pdf)")
 
-    st.title("🔗 Classification avancée des postes de consommation")
 
-    # --- Sélection temporelle ---
-    st.markdown("**📅 Période analysée**")
-    min_date, max_date = df.index.min(), df.index.max()
-    periode = st.date_input("Sélectionne la période", [min_date, max_date], min_value=min_date, max_value=max_date)
-    df_ = df.loc[periode[0]:periode[1]]
-
-    # --- Type de données ---
-    var_type = st.selectbox(
-        "Type de données pour classification",
-        ["Indices bruts", "Variations mensuelles (%)", "Indicateurs dérivés"]
-    )
-
-    if var_type == "Indices bruts":
-        X = df_[poste_cols].T
-    elif var_type == "Variations mensuelles (%)":
-        X = df_[poste_cols].pct_change().dropna().T
-    else:  # Indicateurs dérivés
-        feats = pd.DataFrame({
-            poste: {
-                "Tendance": np.polyfit(range(len(df_[poste])), df_[poste], 1)[0],
-                "Volatilité": df_[poste].pct_change().std(),
-                "Variation annuelle": df_[poste].pct_change(12).mean() * 100
-            } for poste in poste_cols
-        }).T
-        scaler = StandardScaler()
-        X = pd.DataFrame(scaler.fit_transform(feats), index=feats.index, columns=feats.columns)
-
-    scaler = StandardScaler()
-    X_std = scaler.fit_transform(X)
-
-    # --- Automatisation choix optimal k ---
-    st.subheader("🔍 Choix optimal du nombre de groupes")
-    k_range = range(2, 11)
-    inerties, sil_scores = [], []
-
-    for k in k_range:
-        km = KMeans(n_clusters=k, random_state=42, n_init='auto').fit(X_std)
-        inerties.append(km.inertia_)
-        sil_scores.append(silhouette_score(X_std, km.labels_))
-
-    fig_k = go.Figure()
-    fig_k.add_trace(go.Scatter(x=list(k_range), y=inerties, mode='lines+markers', name='Inertie (méthode du coude)'))
-    fig_k.add_trace(go.Scatter(x=list(k_range), y=sil_scores, mode='lines+markers', name='Score Silhouette', yaxis="y2"))
-
-    fig_k.update_layout(
-        yaxis=dict(title="Inertie"),
-        yaxis2=dict(title="Score Silhouette", overlaying='y', side='right'),
-        xaxis=dict(title="Nombre de groupes (k)"),
-        legend=dict(x=0.1, y=1.1),
-        height=400
-    )
-    st.plotly_chart(fig_k)
-
-    k = st.slider("Choisir k basé sur l'analyse ci-dessus", 2, 10, 4)
-
-    # --- Algorithme ---
-    algo = st.selectbox("Algorithme de clustering", ["K-means", "CAH (Hiérarchique)"])
-
-    if algo == "K-means":
-        km = KMeans(n_clusters=k, random_state=42, n_init='auto').fit(X_std)
-        labels = km.labels_ + 1
+if __name__ == "__main__":
+    if "df" not in st.session_state:
+        st.error("Charge la base via app.py avant d’ouvrir cette page.")
     else:
-        Z = linkage(X_std, method='average', metric='euclidean')
-        labels = fcluster(Z, t=k, criterion='maxclust')
-
-    # --- Qualité des groupes ---
-    st.subheader("📌 Évaluation qualitative des groupes")
-    sil = silhouette_score(X_std, labels)
-    intra_var = np.mean([X_std[labels == c].var() for c in np.unique(labels)])
-    inter_var = X_std.var() - intra_var
-
-    st.metric("Score Silhouette", f"{sil:.2f}")
-    st.write(f"Variance intra-groupe moyenne : {intra_var:.4f}")
-    st.write(f"Variance inter-groupe : {inter_var:.4f}")
-
-    qual_txt = ("✅ Bonne qualité : groupes distincts" if sil > 0.5 else
-                "⚠️ Qualité moyenne : groupes partiellement séparés" if sil > 0.3 else
-                "❌ Qualité faible : interpréter avec précaution")
-    st.info(qual_txt)
-
-    # --- Mapping poste → groupe ---
-    clust_df = pd.DataFrame({"Poste": poste_cols, "Groupe": labels}).sort_values("Groupe")
-    st.dataframe(clust_df, use_container_width=True)
-    st.download_button("💾 Exporter le mapping", clust_df.to_csv(index=False).encode('utf-8'), "groupes.csv")
-
-    # --- Analyse fine des groupes ---
-    st.subheader("📊 Analyse détaillée des groupes")
-    for c in np.unique(labels):
-        membres = clust_df[clust_df.Groupe == c].Poste.tolist()
-        st.markdown(f"### 📌 Groupe {c} ({len(membres)} postes)")
-        st.write(", ".join(membres))
-
-        group_data = df_[membres].mean(axis=1)
-        volatility = df_[membres].pct_change().std().mean() * 100
-        correlation_ihpc = group_data.corr(df_["IHPC"])
-
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=group_data.index, y=group_data, name=f"Groupe {c} (moyenne)"))
-        fig.add_trace(go.Scatter(x=df_.index, y=df_["IHPC"], name="IHPC", line=dict(dash='dot')))
-        fig.update_layout(height=300, title=f"Groupe {c} vs IHPC")
-        st.plotly_chart(fig)
-
-        st.write(f"Volatilité moyenne : **{volatility:.2f}%**")
-        st.write(f"Corrélation avec IHPC : **{correlation_ihpc:.2f}**")
-
-        interpret = ("Groupe stable aligné avec l'IHPC" if correlation_ihpc > 0.7 else
-                     "Groupe volatile à surveiller" if volatility > 5 else
-                     "Groupe atypique (faible corrélation avec l'IHPC)")
-        st.info(interpret)
-
-    # --- PCA interactif ---
-    st.subheader("🌐 Projection PCA interactive des groupes")
-    pca = PCA(n_components=2).fit_transform(X_std)
-    pca_df = pd.DataFrame(pca, columns=["PC1", "PC2"], index=poste_cols)
-    pca_df["Groupe"] = labels
-
-    if "IHPC" in df.columns:
-        ihpc_vecteur = scaler.transform(df_[["IHPC"]].T)
-        ihpc_pca = PCA(n_components=2).fit(X_std).transform(ihpc_vecteur)[0]
-        pca_df.loc["IHPC"] = [ihpc_pca[0], ihpc_pca[1], "IHPC"]
-
-    fig_pca = px.scatter(pca_df, x="PC1", y="PC2", color="Groupe", text=pca_df.index,
-                         title="PCA : Groupes et position de l'IHPC")
-    fig_pca.update_traces(textposition='top center')
-    st.plotly_chart(fig_pca)
-
-    st.success("🚀 Analyse interactive complète !")
-
+        render_classif()

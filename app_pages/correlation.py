@@ -33,7 +33,7 @@ def render_correlation() -> None:
 
     groupe = st.radio(
         "Comparer à…",
-        ["Postes", "Fonctions", "Globaux", "Toutes les séries"]
+        ["Postes", "Fonctions", "Globaux"]
     )
 
     # 2️⃣ Constitution de l'ensemble à corréler

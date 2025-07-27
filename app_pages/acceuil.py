@@ -31,6 +31,7 @@ def render_accueil() -> None:
     st.caption("Mise à jour : %s" % df.index.max().strftime("%B %Y"))
     
     
+    
 
     # ---- Cartes KPI -------------------------------------------------------------
     dernier   = df.index.max()
