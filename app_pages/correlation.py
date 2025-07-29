@@ -30,6 +30,16 @@ def render_correlation() -> None:
         "Variable cible", 
         ["IHPC", "Inflation", "InflationGliss"] + fonction_cols + poste_cols
     )
+    
+    if cible not in df.columns:
+        st.error(f"⚠️ La fonction **{cible}** n’est pas disponible dans les données chargées.")
+        st.markdown(
+            ":red[**Cette fonction n’est pas encore calculée par l’ANStat.**] "
+            "Vous pouvez cependant l’estimer de manière approchée en allant dans la page **Traitement**."
+        )
+        return
+    else:
+        pass
 
     groupe = st.radio(
         "Comparer à…",
