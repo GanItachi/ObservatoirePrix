@@ -131,14 +131,14 @@ def compute_forecasts(series: pd.Series, season: int,
                 scores.append((name, rmse, mape, mae, exec_time,
                             trend, seas, len(model.params)))
             except Exception as exc:
-                st.error(f"Erreur Holt-Winters ({name}): {exc}")
+                print(f"Erreur Holt-Winters ({name}): {exc}")
 
 
     else:
         if len(train) < 2 * season:
             st.warning(f"Holt-Winters non calculé : {len(train)} valeurs, minimum requis : {2 * season}")
 
-
+    """
     # ====================================================================== #
     # 4️⃣  S + ARIMA
     # ====================================================================== #
@@ -166,7 +166,8 @@ def compute_forecasts(series: pd.Series, season: int,
 
         scores.append(("S+ARIMA", rmse, mape, mae, exec_time,
                        f"ARIMA{order_a}", "add. seas.", arima.params.shape[0]))
-
+    
+    """
     # ----------------------------------------------------------------------
     score_df = (pd.DataFrame(scores, columns=[
         "Modèle", "RMSE", "MAPE (%)", "MAE",
@@ -193,12 +194,14 @@ def _fit_full_model(series: pd.Series, season: int, model_name: str):
         return ExponentialSmoothing(series, seasonal_periods=season,
                                     trend=trend, seasonal=seas,
                                     initialization_method="estimated").fit()
+    """
     if model_name == "S+ARIMA":
         decomp = seasonal_decompose(series, model="additive", period=season)
         trend  = decomp.trend.dropna()
         order_a, arima = find_best_arima(trend, range(0,3), range(0,3), range(0,3))
         return {"decomp": decomp, "arima": arima, "season": season}
     return None
+    """
 
 
 def render_choix() -> None:
@@ -317,8 +320,8 @@ def render_choix() -> None:
     # -------- Choix du modèle & graphe -------------------------------------
     choice = st.radio("Modèle retenu", list(res["pred"].keys()),
                       index=list(res["pred"].keys()).index(
-                          st.session_state["chosen_model"]),
-                      key="chosen_model")
+                          st.session_state["chosen_model"])
+                      )
 
     train, test = res["train"], res["test"]
     pred, ci    = res["pred"][choice], res["ci"][choice]

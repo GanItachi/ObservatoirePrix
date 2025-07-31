@@ -153,6 +153,17 @@ def render_accueil() -> None:
             fig, ax = plt.subplots(figsize=(10, 4))
             sns.heatmap(df.isna(), cbar=False, ax=ax)
             st.pyplot(fig)
+    with open("docs/GuideUtilisation.pdf", "rb") as f:
+        pdf_data = f.read()
+
+    with st.expander("📖 Guide d'utilisation"):
+        st.markdown("Pour la prise en main de l'application, un guide d'utilisation est disponible :")
+        st.download_button(
+            label="📥 Télécharger le guide (PDF)",
+            data=pdf_data,
+            file_name="GuideUtilisation.pdf",
+            mime="application/pdf"
+        )
 
     # ---- Téléchargement rapide --------------------------------------------------
     csv_bytes = df.to_csv(index=True).encode("utf-8")

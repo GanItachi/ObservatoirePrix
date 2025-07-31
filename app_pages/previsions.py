@@ -29,6 +29,7 @@ def _forecast_with_saved(model_obj, model_name: str,
     if model_name == "Prophet":
         
         dfp = full_series.rename("y").reset_index().rename(columns={full_series.index.name or "index": "ds"})
+        model_obj = Prophet(); model_obj.random_seed = 42
         model_obj.fit(dfp)  # ré‑entraînement rapide
         fc = model_obj.predict(pd.DataFrame({"ds": future_idx})).set_index("ds")
         core = pd.DataFrame({"Prévision": fc["yhat"],
